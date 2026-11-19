@@ -639,33 +639,33 @@
 
       const projectName = state.selectedProject;
       const currentFile = state.queue[state.index];
+
+      // 1. Copia sin bloquear el hilo principal para no consumir el gesto táctil en iOS
+      const copyPromise = copyTextToClipboard(projectName);
+
+      if (!navigator.share) {
+        const copied = await copyPromise;
+        showToast(
+          copied
+            ? "Proyecto copiado (usa HTTPS para compartir)"
+            : "Compartir no disponible en este contexto",
+          !copied
+        );
+        return;
+      }
+
+      // 2. Si aún no termina de bajar la foto, avisa en vez de dejar que iOS lance NotAllowedError
+      const file = state.cachedShareName === currentFile ? state.cachedShareFile : null;
+      if (!file) {
+        await copyPromise;
+        showToast("La imagen aún está cargando, intenta de nuevo en 1s");
+        return;
+      }
+
       state.sharing = true;
       el.shareBtn.disabled = true;
 
       try {
-        const copied = await copyTextToClipboard(projectName);
-
-        if (!navigator.share) {
-          showToast(
-            copied
-              ? "Proyecto copiado (compartir no disponible aquí)"
-              : "Compartir no está disponible en este navegador",
-            !copied
-          );
-          return;
-        }
-
-        let file = state.cachedShareName === currentFile ? state.cachedShareFile : null;
-        if (!file && state.cachedShareName === currentFile && state.cachedSharePromise) {
-          file = await state.cachedSharePromise;
-        }
-        if (!file) {
-          const res = await fetch(buildPublicUrl(currentFile), { mode: "cors" });
-          if (!res.ok) throw new Error("No se pudo preparar la imagen.");
-          const blob = await res.blob();
-          file = new File([blob], currentFile, { type: blob.type || guessMimeType(currentFile) });
-        }
-
         let shareData = {
           files: [file],
           text: projectName,
@@ -677,21 +677,19 @@
           if (navigator.canShare(fileOnly)) {
             shareData = fileOnly;
           } else {
-            showToast(
-              copied
-                ? "Proyecto copiado (no se permite compartir archivos)"
-                : "Este navegador no permite compartir archivos",
-              !copied
-            );
+            const copied = await copyPromise;
+            showToast(copied ? "Proyecto copiado" : "No se puede compartir este archivo", !copied);
             return;
           }
         }
 
+        // 3. Llamada inmediata a navigator.share mientras el toque sigue activo en Safari
+        const sharePromise = navigator.share(shareData);
+        const copied = await copyPromise;
         if (copied) {
           showToast("Proyecto copiado al portapapeles");
         }
-
-        await navigator.share(shareData);
+        await sharePromise;
       } catch (error) {
         if (error.name !== "AbortError") {
           showToast(`Error al compartir: ${error.message}`, true);
@@ -701,7 +699,6 @@
         el.shareBtn.disabled = false;
       }
     }
-
     // Mantiene fija la altura del contenedor cuando se abre el teclado virtual en celular
     function lockAppHeight(force = false) {
       const widthChanged = window.innerWidth !== state.lastViewportWidth;
