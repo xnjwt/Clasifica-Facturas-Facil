@@ -915,8 +915,8 @@
       el.progressFill.style.width = `${pct}%`;
       if (state.queue.length === 0) {
         el.counter.textContent = `${done}/${total} listas`;
-      } else {
-        el.counter.textContent = `${state.index + 1}/${state.queue.length} (${done}/${total})`;
+      } else { 
+        el.counter.textContent = `${state.index + 1}/${state.queue.length}`;
       }
     }
 
