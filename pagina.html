@@ -589,31 +589,32 @@
     }
 
     async function copyTextToClipboard(text) {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch {
-          // Continúa al fallback si el navegador restringe la API asíncrona
-        }
-      }
       try {
         const ta = document.createElement("textarea");
         ta.value = text;
         ta.setAttribute("readonly", "");
         ta.style.position = "fixed";
+        ta.style.top = "0";
+        ta.style.left = "-9999px";
         ta.style.opacity = "0";
-        ta.style.pointerEvents = "none";
         document.body.appendChild(ta);
-        ta.select();
+        ta.focus();
+        ta.setSelectionRange(0, text.length);
         const ok = document.execCommand("copy");
         document.body.removeChild(ta);
-        return ok;
-      } catch {
-        return false;
-      }
-    }
+        if (ok) return true;
+      } catch {}
 
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
     // Precarga el archivo original en memoria para que navigator.share() abra al instante sin perder el gesto del usuario
     function prefetchShareFile(fileName) {
       const requestId = ++state.shareCacheId;
@@ -666,21 +667,12 @@
       el.shareBtn.disabled = true;
 
       try {
-        let shareData = {
-          files: [file],
-          text: projectName,
-          title: projectName
-        };
+        const shareData = { files: [file] };
 
         if (navigator.canShare && !navigator.canShare(shareData)) {
-          const fileOnly = { files: [file] };
-          if (navigator.canShare(fileOnly)) {
-            shareData = fileOnly;
-          } else {
-            const copied = await copyPromise;
-            showToast(copied ? "Proyecto copiado" : "No se puede compartir este archivo", !copied);
-            return;
-          }
+          const copied = await copyPromise;
+          showToast(copied ? "Proyecto copiado" : "No se puede compartir este archivo", !copied);
+          return;
         }
 
         // 3. Llamada inmediata a navigator.share mientras el toque sigue activo en Safari
