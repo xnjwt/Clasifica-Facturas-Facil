@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=overlays-content">
   <title>Clasificador de Facturas</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
@@ -21,14 +21,22 @@
       --danger: #ef4444;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%;
+      height: var(--app-height, 100svh);
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
     body {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
       font-family: system-ui, -apple-system, sans-serif;
       background: var(--bg);
       color: var(--text);
-      height: 100dvh;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
     }
     header {
       display: flex;
@@ -185,7 +193,7 @@
       border: 1px solid var(--border);
       background: var(--bg);
       color: var(--text);
-      font-size: 0.96rem;
+      font-size: 16px;
       outline: none;
       transition: border-color 0.15s;
     }
@@ -217,9 +225,10 @@
       top: calc(100% + 6px);
       left: 0;
       right: 0;
-      max-height: min(46dvh, 360px);
+      max-height: min(46svh, 360px);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
       background: #0f172a;
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -376,7 +385,7 @@
         font-size: 0.92rem;
       }
       .dropdown {
-        max-height: min(44dvh, 280px);
+        max-height: min(44svh, 280px);
       }
     }
   </style>
@@ -401,7 +410,15 @@
       <div class="error-banner hidden" id="error-banner"></div>
       <div class="combobox" id="combobox">
         <div class="input-wrap">
-          <input id="search-input" type="text" placeholder="Toca para elegir o busca el proyecto..." autocomplete="off" spellcheck="false">
+          <input
+            id="search-input"
+            type="text"
+            placeholder="Toca para elegir o busca el proyecto..."
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+          >
           <button class="clear-btn hidden" id="clear-btn" type="button" aria-label="Limpiar">×</button>
         </div>
         <div class="dropdown hidden" id="dropdown"></div>
@@ -452,7 +469,9 @@
       activeIndex: -1,
       fuse: null,
       panzoom: null,
-      busy: false
+      busy: false,
+      shouldSelectOnTap: false,
+      lastViewportWidth: window.innerWidth
     };
 
     const el = {
@@ -489,6 +508,53 @@
 
     function buildPublicUrl(fileName) {
       return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${encodeURIComponent(fileName)}`;
+    }
+
+    // Mantiene fija la altura del contenedor cuando se abre el teclado virtual en celular
+    function lockAppHeight(force = false) {
+      const widthChanged = window.innerWidth !== state.lastViewportWidth;
+      const isInputFocused = document.activeElement === el.searchInput;
+      if (!force && isInputFocused && !widthChanged) {
+        return;
+      }
+      state.lastViewportWidth = window.innerWidth;
+      document.documentElement.style.setProperty("--app-height", `${window.innerHeight}px`);
+    }
+
+    // Ajusta el alto del dropdown para que siempre sea visible encima del teclado virtual
+    function updateDropdownMaxHeight() {
+      if (!state.dropdownOpen) return;
+      const vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const vvTop = window.visualViewport ? window.visualViewport.offsetTop : 0;
+      const rect = el.combobox.getBoundingClientRect();
+      const cap = window.innerWidth <= 820 ? 280 : 360;
+      const available = Math.floor((vvTop + vvHeight) - rect.bottom - 14);
+      el.dropdown.style.maxHeight = `${Math.max(120, Math.min(available, cap))}px`;
+    }
+
+    // Selecciona todo el texto de forma confiable en iOS Safari y Android Chrome
+    function selectAllInputText() {
+      const len = el.searchInput.value.length;
+      if (!len) return;
+      const applySelection = () => {
+        if (document.activeElement !== el.searchInput) return;
+        try {
+          el.searchInput.setSelectionRange(0, el.searchInput.value.length);
+        } catch {
+          el.searchInput.select();
+        }
+      };
+      applySelection();
+      setTimeout(applySelection, 0);
+    }
+
+    function dismissSearchFocus() {
+      if (state.dropdownOpen) {
+        closeDropdown();
+      }
+      if (document.activeElement === el.searchInput) {
+        el.searchInput.blur();
+      }
     }
 
     function getUsageCounts() {
@@ -546,6 +612,7 @@
       state.dropdownOpen = true;
       el.dropdown.classList.remove("hidden");
       renderDropdown();
+      updateDropdownMaxHeight();
     }
 
     function closeDropdown() {
@@ -767,18 +834,65 @@
     }
 
     function bindEvents() {
+      lockAppHeight(true);
+
+      window.addEventListener("resize", () => {
+        lockAppHeight();
+        updateDropdownMaxHeight();
+      });
+
+      window.addEventListener("orientationchange", () => {
+        setTimeout(() => {
+          lockAppHeight(true);
+          updateDropdownMaxHeight();
+        }, 150);
+      });
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", updateDropdownMaxHeight);
+        window.visualViewport.addEventListener("scroll", updateDropdownMaxHeight);
+      }
+
       el.searchInput.addEventListener("focus", () => {
         state.activeIndex = -1;
         openDropdown();
+        if (el.searchInput.value) {
+          state.shouldSelectOnTap = true;
+          selectAllInputText();
+        }
+      });
+
+      el.searchInput.addEventListener("mouseup", (event) => {
+        if (state.shouldSelectOnTap) {
+          event.preventDefault();
+        }
       });
 
       el.searchInput.addEventListener("click", () => {
         if (!state.dropdownOpen) {
           openDropdown();
         }
+        if (
+          state.shouldSelectOnTap ||
+          (state.selectedProject && el.searchInput.value === state.selectedProject)
+        ) {
+          state.shouldSelectOnTap = false;
+          selectAllInputText();
+        }
+      });
+
+      el.searchInput.addEventListener("blur", () => {
+        state.shouldSelectOnTap = false;
+        setTimeout(() => {
+          if (document.activeElement !== el.searchInput) {
+            lockAppHeight();
+            window.scrollTo(0, 0);
+          }
+        }, 200);
       });
 
       el.searchInput.addEventListener("input", () => {
+        state.shouldSelectOnTap = false;
         if (el.searchInput.value !== state.selectedProject) {
           state.selectedProject = null;
         }
@@ -793,8 +907,7 @@
           return;
         }
         if (event.key === "Escape") {
-          closeDropdown();
-          el.searchInput.blur();
+          dismissSearchFocus();
           return;
         }
         if (!state.visibleItems.length) return;
@@ -815,6 +928,7 @@
 
       el.clearBtn.addEventListener("click", () => {
         state.selectedProject = null;
+        state.shouldSelectOnTap = false;
         el.searchInput.value = "";
         state.activeIndex = -1;
         syncInputState();
@@ -822,11 +936,12 @@
         openDropdown();
       });
 
-      document.addEventListener("click", (event) => {
-        if (state.dropdownOpen && !el.combobox.contains(event.target)) {
-          closeDropdown();
+      // Captura toques fuera del combobox antes de que Panzoom intercepte el evento en el visor
+      document.addEventListener("pointerdown", (event) => {
+        if (!el.combobox.contains(event.target)) {
+          dismissSearchFocus();
         }
-      });
+      }, { capture: true });
 
       el.nextBtn.addEventListener("click", () => {
         if (state.selectedProject) {
