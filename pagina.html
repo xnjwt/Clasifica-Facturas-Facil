@@ -1183,7 +1183,12 @@
 
       state.allFiles = (filesRes.data || [])
         .map((f) => f.name)
-        .filter((name) => IMAGE_EXTENSIONS.test(name));
+        .filter((name) => IMAGE_EXTENSIONS.test(name))
+        .sort((a, b) => {
+          const dateA = a.slice(4, 6) + a.slice(2, 4) + a.slice(0, 2);
+          const dateB = b.slice(4, 6) + b.slice(2, 4) + b.slice(0, 2);
+          return dateA.localeCompare(dateB);
+        });
 
       state.projects = (projectsRes.data || []).map((p) => ({
         nombre: p.nombre,
