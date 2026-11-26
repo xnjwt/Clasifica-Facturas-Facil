@@ -902,11 +902,9 @@
       const done = state.allFiles.filter((name) => state.classifications.has(name)).length;
       const pct = total ? Math.round((done / total) * 100) : 0;
       el.progressFill.style.width = `${pct}%`;
-      if (state.queue.length === 0) {
-        el.counter.textContent = `${done}/${total} listas`;
-      } else { 
-        el.counter.textContent = `${state.index + 1}/${state.queue.length}`;
-      }
+      const currentFile = state.queue[state.index];
+      const currentPosition = currentFile ? state.allFiles.indexOf(currentFile) + 1 : total;
+      el.counter.textContent = `${currentPosition}/${total}`;
     }
 
     function preloadNextImage() {
